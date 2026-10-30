@@ -150,8 +150,12 @@ let currentUser = null;
 let unsubscribeSongs = null;
 let searchQuery = '';
 let viewerTranspose = 0;
-const ADMIN_UID = 'REPLACE_WITH_ADMIN_FIREBASE_UID';
-function isAdmin(){ return !!currentUser && currentUser.uid === ADMIN_UID; }
+const SUPER_ADMIN_UID = '9mDglSfyziTd0UQUhXV79tqAphq1';
+const INITIAL_ADMIN_UID = 'Q8outnKG5cb9J4lSBvaERc47EmE3';
+let approvedRole = null;
+let roleUnsubscribe = null;
+function isSuperAdmin(){ return !!currentUser && currentUser.uid === SUPER_ADMIN_UID; }
+function isAdmin(){ return !!currentUser && (isSuperAdmin() || currentUser.uid === INITIAL_ADMIN_UID || approvedRole === 'admin'); }
 function requireAdmin(){ if(!isAdmin()){ alert('Admin only'); return false; } return true; }
 
 function getSongById(id){ return songs.find(s => s.id === id); }
@@ -170,6 +174,14 @@ function newSongData(){
 auth.onAuthStateChanged(user => {
   currentUser = user;
   if(unsubscribeSongs){ unsubscribeSongs(); unsubscribeSongs = null; }
+  if(roleUnsubscribe){ roleUnsubscribe(); roleUnsubscribe = null; }
+  approvedRole = null;
+  if(user && user.uid !== SUPER_ADMIN_UID && user.uid !== INITIAL_ADMIN_UID){
+    roleUnsubscribe = db.collection('adminRequests').doc(user.uid).onSnapshot(doc => {
+      approvedRole = doc.exists && doc.data().status === 'approved' ? 'admin' : null;
+      render();
+    }, err => console.warn('Role lookup:',err.message));
+  }
   startSongsListener();
   view = 'home';
   render();
@@ -200,7 +212,33 @@ function doSignup(){
   errBox.textContent = '';
   auth.createUserWithEmailAndPassword(email, pass).catch(e => { errBox.textContent = friendlyAuthError(e); });
 }
+async function requestAdminAccess(){
+  if(!currentUser) return alert('Mag-sign up muna.');
+  if(isAdmin()) return alert('Admin ka na.');
+  const ref = db.collection('adminRequests').doc(currentUser.uid);
+  try {
+    const doc = await ref.get();
+    if(doc.exists) return alert('Request status: ' + doc.data().status);
+    await ref.set({ email: currentUser.email || '', status: 'pending', createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+    alert('Submitted! Hintayin ang Super Admin approval.'); render();
+  } catch(e){ alert('Request failed: ' + e.message); }
+}
 function doLogout(){ auth.signOut(); }
+async function openApprovals(){
+  if(!isSuperAdmin()) return;
+  view='approvals'; render();
+  try {
+    const snap = await db.collection('adminRequests').get();
+    const rows = snap.docs.map(d=>({id:d.id,...d.data()}));
+    const host = document.getElementById('approvalList'); if(!host) return;
+    host.innerHTML = rows.length ? rows.map(r=>`<div style="padding:12px;border-bottom:1px solid #ddd;overflow-wrap:anywhere"><b>${escapeHtml(r.email||r.id)}</b><br>Status: ${escapeHtml(r.status||'pending')}<br>${r.status==='pending' ? `<button onclick="decideAdmin('${r.id}','approved')">Approve</button> <button onclick="decideAdmin('${r.id}','rejected')">Reject</button>` : r.status==='approved' ? `<button onclick="decideAdmin('${r.id}','revoked')">Revoke</button>` : `<button onclick="decideAdmin('${r.id}','approved')">Approve</button>`}</div>`).join('') : '<p>Walang requests.</p>';
+  } catch(e){ document.getElementById('approvalList').textContent=e.message; }
+}
+async function decideAdmin(uid,status){
+  if(!isSuperAdmin() || !confirm('Set '+status+' for this account?')) return;
+  try { await db.collection('adminRequests').doc(uid).update({status,reviewedAt:firebase.firestore.FieldValue.serverTimestamp()}); openApprovals(); }
+  catch(e){ alert(e.message); }
+}
 function friendlyAuthError(e){
   const map = {
     'auth/invalid-email': 'Invalid na email format.',
@@ -266,6 +304,7 @@ function render(){
   const app = document.getElementById('app');
   if(view === 'loading') app.innerHTML = `<div class="loadingMsg">Naglo-load...</div>`;
   else if(view === 'login') app.innerHTML = renderLogin();
+  else if(view === 'approvals') app.innerHTML = `<div class="topbar">Admin Approvals</div><div style="padding:16px"><button onclick="goHome()">← Back</button><div id="approvalList">Loading...</div></div>`;
   else if(view === 'home') app.innerHTML = renderHome();
   else if(view === 'viewer') app.innerHTML = renderViewer(getSongById(currentId));
   else if(view === 'import') app.innerHTML = renderImport();
@@ -281,14 +320,17 @@ function renderLogin(){
     <input id="loginPass" type="password" placeholder="Password">
     <div class="authErr" id="authError"></div>
     <button class="loginBtn" onclick="doLogin()">Login</button>
-
-    <div class="hint">Viewer access is free. Only the designated admin can change songs.</div>
+    <button class="signupBtn" onclick="doSignup()">Sign Up (Request Admin)</button>
+    ${currentUser && !isAdmin() ? `<button onclick="requestAdminAccess()">Submit Admin Request</button><div class="hint">Signed in: ${escapeHtml(currentUser.email||'')}</div><button onclick="doLogout()">Logout</button>` : ''}
+    <div class="hint">Viewers can browse without login. New accounts require Super Admin approval before editing songs.</div>
   </div>`;
 }
 
 function renderHome(){
   let html = `<div class="topbar"><span>🎸 Anoint Chords</span>${isAdmin() ? `<button class="logoutBtn" onclick="doLogout()">Logout</button>` : `<button class="logoutBtn" onclick="showAdminLogin()">Admin Login</button>`}</div>`;
 
+  if(isSuperAdmin()) html += `<div style="padding:8px 12px"><button onclick="openApprovals()">👑 Admin Approval Dashboard</button></div>`;
+  if(currentUser && !isAdmin()) html += `<div style="padding:8px 12px">Signed in, but not approved. <button onclick="requestAdminAccess()">Request Admin Access</button> <button onclick="doLogout()">Logout</button></div>`;
   html += `<div class="searchBar">
     <input id="searchInput" type="text" placeholder="🔍 Maghanap ng kanta..." value="${escapeHtml(searchQuery)}" oninput="updateSearch(this.value)">
   </div>`;

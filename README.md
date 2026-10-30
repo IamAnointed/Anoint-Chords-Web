@@ -1,22 +1,20 @@
-# Anoint Chords website (Firebase Hosting)
+# Anoint Chords Web v2 — Admin Approval
 
-Uses existing Firebase project `chord-charts-bd4c3`, Firestore collection `songs`.
+Existing Firebase project: `chord-charts-bd4c3`.
 
-## Before deploying
-1. In Firebase Console > Authentication > Users, create/find your admin email account and copy its UID. Do not share the password.
-2. Replace `REPLACE_WITH_ADMIN_FIREBASE_UID` in `public/index.html` AND `firestore.rules` with the exact UID.
-3. In Firebase Console > Firestore Database > Rules, merge the `songs` rule from `firestore.rules` into existing rules (do not overwrite unrelated collections), then Publish. Viewer read is public; writes are admin-only.
-4. In Firebase Console > Authentication > Settings > Authorized domains, ensure your hosting domain is allowed.
+## Setup
+1. Enable **Authentication → Sign-in method → Email/Password** in Firebase Console.
+2. Confirm the two supplied UIDs exist in Authentication → Users.
+3. **Back up existing Firestore rules** before replacing them. Merge rules for any unrelated collections.
+4. Paste `firestore.rules` into Firestore Database → Rules → Publish (or deploy with CLI).
+5. From this folder, run `npm install -g firebase-tools`, `firebase login`, then `firebase deploy --only hosting --project chord-charts-bd4c3`.
+6. Open the Hosting URL and sign in as Super Admin. The dashboard lists pending requests.
 
-## Deploy from computer
-1. Install Node.js LTS, then `npm install -g firebase-tools`.
-2. Open terminal in this folder and run `firebase login`.
-3. Run `firebase use chord-charts-bd4c3`.
-4. Run `firebase deploy --only hosting`.
-5. Open https://chord-charts-bd4c3.web.app (if Hosting is provisioned).
+## New Admin workflow
+A new person signs up with email/password, then selects **Request Admin Access**. The request is stored in `adminRequests/{uid}` with status `pending`. The Super Admin approves or rejects it. Only approved accounts can edit songs. All visitors can view and transpose songs.
 
-## GitHub
-Commit these files to a GitHub repository for source control. GitHub does NOT host this deployment; Firebase Hosting does. Do not upload the Android `app/` folder into this web root.
+## Security
+Permissions are enforced in Firestore rules, not merely by hiding buttons. The Super Admin UID and initial Admin UID are identifiers, not passwords. Never commit service-account credentials. Existing users' Firebase passwords are not included.
 
-## Notes
-The PWA service worker caches only the website shell. Offline Firestore songs require additional persistence configuration/testing. This package does not import Drive Excel files. Existing Firebase config is embedded in index.html; Firebase web config is not a password. Admin permissions depend on Firestore rules, not UI alone.
+## Limitations
+This release does not import the Drive Excel collection automatically. Test against your existing `songs` collection. Hosting and Firestore rules are separate deployment steps. Offline song availability depends on browser caching and Firestore configuration.
