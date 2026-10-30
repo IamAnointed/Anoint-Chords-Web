@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="tl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Chord Chart Maker</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#8BC98B">
+<link rel="apple-touch-icon" href="icon-192.png">
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<style>
+  .authWrap { padding:16px; max-width:400px; margin:30px auto; }
+  .authWrap h3 { text-align:center; }
+  .authWrap input { width:100%; padding:12px; margin-bottom:10px; border:1px solid #ccc; border-radius:8px; font-size:15px; }
+  .authWrap button { width:100%; padding:12px; border:none; border-radius:8px; font-weight:bold; font-size:15px; margin-bottom:10px; }
+  .authWrap .loginBtn { background:#3a6b3a; color:#fff; }
+  .authWrap .signupBtn { background:#8BC98B; }
+  .authErr { color:#a02020; font-size:13px; margin-bottom:8px; min-height:16px; }
+  .logoutBtn { background:transparent; color:#12351a; border:none; font-size:13px; text-decoration:underline; }
+  .loadingMsg { text-align:center; padding:40px; color:#888; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, Arial, sans-serif; background:#f2f2f2; color:#222;
+    padding-bottom: 40px;
+  }
+  .topbar {
+    background:#8BC98B; padding:14px 16px; font-size:20px; font-weight:bold;
+    display:flex; align-items:center; justify-content:space-between; box-shadow:0 2px 4px rgba(0,0,0,.15);
+    position:sticky; top:0; z-index:10;
+  }
+  .topbar button { background:#fff; border:none; padding:8px 12px; border-radius:6px; font-weight:bold; font-size:14px; }
+  .topbar .backBtn { background:transparent; color:#1a4a1a; font-size:22px; padding:0 8px; }
+  #app { padding: 12px; max-width:700px; margin:0 auto; }
+
+  /* Home / song list */
+  .songCard {
+    background:#fff; border-radius:10px; padding:14px; margin-bottom:10px;
+    display:flex; justify-content:space-between; align-items:center; box-shadow:0 1px 3px rgba(0,0,0,.1);
+  }
+  .songCard .info { flex:1; }
+  .songCard .info .t { font-weight:bold; font-size:16px; }
+  .songCard .info .k { color:#555; font-size:13px; margin-top:2px; }
+  .songCard .actions button { margin-left:6px; padding:8px 10px; border:none; border-radius:6px; font-size:14px; }
+  .delBtn { background:#f5d5d5; color:#a02020; }
+  .dupBtn { background:#fde9c8; color:#8a5a12; }
+  .openBtn { background:#8BC98B; color:#12351a; }
+  .newSongBtn {
+    width:100%; padding:14px; border:2px dashed #8BC98B; background:#eaf6ea; border-radius:10px;
+    font-size:16px; font-weight:bold; color:#3a6b3a; margin-top:6px;
+  }
+  .emptyMsg { text-align:center; color:#888; padding:30px 10px; }
+
+  /* Editor */
+  .fieldRow { display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+  .fieldRow label { font-weight:bold; font-size:13px; color:#444; min-width:70px; }
+  .titleInput { flex:1; padding:10px; font-size:16px; border:1px solid #ccc; border-radius:6px; }
+  .keyBadge { background:#a9c8ea; padding:6px 14px; border-radius:6px; font-weight:bold; font-size:16px; min-width:40px; text-align:center; }
+  .transBtn { background:#3a6b3a; color:#fff; border:none; width:34px; height:34px; border-radius:6px; font-size:16px; font-weight:bold; }
+
+  .section { background:#fff; border-radius:10px; padding:12px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,.1); }
+  .sectionHead { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .sectionName { font-weight:bold; font-style:italic; text-decoration:underline; border:none; background:transparent; font-size:16px; flex:1; padding:4px; }
+  .smallBtn { border:none; border-radius:6px; padding:6px 9px; font-size:13px; }
+  .addBtn { background:#dbeadb; color:#2b552b; }
+  .rmBtn { background:#f5d5d5; color:#a02020; }
+
+  .chordRow { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; align-items:flex-end; }
+  .chordCell { display:flex; flex-direction:column; align-items:center; width:64px; }
+  .countInput {
+    width:40px; text-align:center; color:#d21f1f; font-weight:bold; font-style:italic;
+    border:none; border-bottom:2px solid #d21f1f; background:transparent; font-size:14px; margin-bottom:4px;
+  }
+  .chordInput {
+    width:64px; text-align:center; padding:8px 2px; font-weight:bold; font-size:15px;
+    border:1px solid #bbb; border-radius:6px; background:#fff;
+  }
+  .chordInput.minor { background:#8BC98B; border-color:#5a9a5a; color:#123; }
+  .cellDel { font-size:11px; color:#a02020; background:none; border:none; margin-top:2px; }
+  .addChordBtn {
+    width:64px; height:40px; align-self:center; border:1px dashed #8BC98B; background:#f2fbf2; border-radius:6px; color:#3a6b3a; font-weight:bold;
+  }
+  .rowFoot { display:flex; justify-content:flex-end; }
+
+  .addSectionBar { display:flex; gap:8px; margin-top:10px; }
+  .addSectionBar input { flex:1; padding:10px; border:1px solid #ccc; border-radius:6px; }
+  .addSectionBar button { padding:10px 14px; background:#8BC98B; border:none; border-radius:6px; font-weight:bold; }
+
+  .saveFooter { position:sticky; bottom:0; background:#f2f2f2; padding:10px 0; }
+  .saveBtn { width:100%; padding:14px; background:#3a6b3a; color:#fff; border:none; border-radius:10px; font-size:16px; font-weight:bold; }
+
+  .hint { font-size:12px; color:#777; margin-top:4px; }
+  .searchBar { margin-bottom:10px; }
+  .searchBar input { width:100%; padding:12px; font-size:15px; border:1px solid #ccc; border-radius:8px; background:#fff; }
+
+  /* Viewer (read-only) */
+  .viewTitle { background:#8BC98B; padding:14px 16px; font-size:20px; font-weight:bold; }
+  .viewKeyRow { display:flex; align-items:center; gap:10px; margin:14px 0; }
+  .viewSection { margin-bottom:16px; }
+  .viewSectionName { font-weight:bold; font-style:italic; text-decoration:underline; font-size:16px; margin-bottom:6px; }
+  .viewChordRow { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px; }
+  .viewCell { display:flex; flex-direction:column; align-items:center; width:64px; }
+  .viewCount { color:#d21f1f; font-weight:bold; font-style:italic; text-decoration:underline; font-size:14px; margin-bottom:4px; }
+  .viewChord {
+    width:64px; text-align:center; padding:8px 2px; font-weight:bold; font-size:15px;
+    border-radius:6px; background:#fff; border:1px solid #ddd;
+  }
+  .viewChord.minor { background:#8BC98B; border-color:#5a9a5a; color:#123; }
+
+  /* Import */
+  .importWrap { padding:4px; }
+  .importWrap textarea {
+    width:100%; min-height:260px; padding:10px; font-family:monospace; font-size:12px;
+    border:1px solid #ccc; border-radius:8px; box-sizing:border-box;
+  }
+  .importBtnRow { display:flex; gap:8px; margin-top:10px; }
+  .importBtnRow button { flex:1; padding:12px; border:none; border-radius:8px; font-weight:bold; font-size:15px; }
+  .importGoBtn { background:#3a6b3a; color:#fff; }
+  .importClearBtn { background:#f5d5d5; color:#a02020; }
+  .importStatus { margin-top:10px; padding:10px; border-radius:8px; font-size:13px; white-space:pre-wrap; }
+  .importStatus.ok { background:#eaf6ea; color:#2b552b; }
+  .importStatus.err { background:#fbe7e7; color:#a02020; }
+</style>
+<link rel="manifest" href="/manifest.webmanifest"><meta name="theme-color" content="#10233f"><link rel="apple-touch-icon" href="/icon-192.png"><script>if ("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(console.warn));</script></head>
+<body>
+<div id="app"></div>
+
+<script>
+const NOTES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const FLAT_MAP = {'Db':'C#','Eb':'D#','Gb':'F#','Ab':'G#','Bb':'A#','Cb':'B','Fb':'E'};
+
+// ===== PALITAN MO ITO gamit ang config mula sa iyong Firebase project =====
+const firebaseConfig = {
+  apiKey: "AIzaSyAQy5LzXyriV2GaebEPvL-TxvS10aMdUjk",
+  authDomain: "chord-charts-bd4c3.firebaseapp.com",
+  projectId: "chord-charts-bd4c3",
+  storageBucket: "chord-charts-bd4c3.firebasestorage.app",
+  messagingSenderId: "908608063899",
+  appId: "1:908608063899:web:873119a72f13e7f5e6b93e"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
+
+let songs = [];          // live mirror ng shared songs mula sa Firestore
+let currentId = null;    // Firestore doc id ng kantang binubuksan
+let view = 'loading';    // loading | login | home | editor | viewer
+let currentUser = null;
+let unsubscribeSongs = null;
+let searchQuery = '';
+let viewerTranspose = 0;
+const ADMIN_UID = 'REPLACE_WITH_ADMIN_FIREBASE_UID';
+function isAdmin(){ return !!currentUser && currentUser.uid === ADMIN_UID; }
+function requireAdmin(){ if(!isAdmin()){ alert('Admin only'); return false; } return true; }
+
+function getSongById(id){ return songs.find(s => s.id === id); }
+
+function newSongData(){
+  return {
+    title: 'Bagong Kanta',
+    key: 'G',
+    sections: [
+      { name: 'Intro', rows: [ { cells: [ {count:4, chord:'G'} ] } ] }
+    ]
+  };
+}
+
+/* ---------- auth ---------- */
+auth.onAuthStateChanged(user => {
+  currentUser = user;
+  if(unsubscribeSongs){ unsubscribeSongs(); unsubscribeSongs = null; }
+  startSongsListener();
+  view = 'home';
+  render();
+});
+
+function startSongsListener(){
+  unsubscribeSongs = db.collection('songs').onSnapshot(snap => {
+    songs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    songs.sort((a,b) => (a.title||'').localeCompare(b.title||''));
+    render();
+  }, err => {
+    console.error(err);
+    document.getElementById('app').innerHTML = `<div class="loadingMsg">May error sa pag-connect sa database.<br>${escapeHtml(err.message)}</div>`;
+  });
+}
+
+function doLogin(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  const errBox = document.getElementById('authError');
+  errBox.textContent = '';
+  auth.signInWithEmailAndPassword(email, pass).catch(e => { errBox.textContent = friendlyAuthError(e); });
+}
+function doSignup(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  const errBox = document.getElementById('authError');
+  errBox.textContent = '';
+  auth.createUserWithEmailAndPassword(email, pass).catch(e => { errBox.textContent = friendlyAuthError(e); });
+}
+function doLogout(){ auth.signOut(); }
+function friendlyAuthError(e){
+  const map = {
+    'auth/invalid-email': 'Invalid na email format.',
+    'auth/user-not-found': 'Walang account sa email na ito.',
+    'auth/wrong-password': 'Maling password.',
+    'auth/email-already-in-use': 'May account na gamit ang email na ito.',
+    'auth/weak-password': 'Password: minimum 6 characters.',
+    'auth/invalid-credential': 'Maling email o password.'
+  };
+  return map[e.code] || e.message;
+}
+
+/* ---------- chord parsing / transpose ---------- */
+function normNote(n){ return FLAT_MAP[n] || n; }
+
+function parseChordToken(token){
+  const m = token.match(/^([A-Ga-g])(#|b)?(.*)$/);
+  if(!m) return null;
+  const letter = m[1].toUpperCase();
+  const acc = m[2] || '';
+  const rest = m[3] || '';
+  return { root: normNote(letter+acc), quality: rest };
+}
+
+function transposeNote(note, steps){
+  const idx = NOTES.indexOf(normNote(note));
+  if(idx === -1) return note;
+  return NOTES[(idx + steps + 1200) % 12];
+}
+
+function transposeChordText(text, steps){
+  if(!text) return text;
+  const parts = text.split('/');
+  const main = parseChordToken(parts[0].trim());
+  if(!main) return text; // not a recognizable chord, leave as-is
+  let out = transposeNote(main.root, steps) + main.quality;
+  if(parts[1]){
+    const bass = parseChordToken(parts[1].trim());
+    if(bass) out += '/' + transposeNote(bass.root, steps) + bass.quality;
+    else out += '/' + parts[1].trim();
+  }
+  return out;
+}
+
+function isMinorChord(text){
+  if(!text) return false;
+  const main = parseChordToken(text.split('/')[0].trim());
+  if(!main) return false;
+  return /^m(?!aj)/.test(main.quality);
+}
+
+function transposeSong(song, steps){
+  song.key = transposeChordText(song.key, steps);
+  song.sections.forEach(sec => {
+    sec.rows.forEach(row => {
+      row.cells.forEach(cell => { cell.chord = transposeChordText(cell.chord, steps); });
+    });
+  });
+}
+
+/* ---------- rendering ---------- */
+function render(){
+  const app = document.getElementById('app');
+  if(view === 'loading') app.innerHTML = `<div class="loadingMsg">Naglo-load...</div>`;
+  else if(view === 'login') app.innerHTML = renderLogin();
+  else if(view === 'home') app.innerHTML = renderHome();
+  else if(view === 'viewer') app.innerHTML = renderViewer(getSongById(currentId));
+  else if(view === 'import') app.innerHTML = renderImport();
+  else app.innerHTML = renderEditor(getSongById(currentId));
+}
+
+function showAdminLogin(){ view='login'; render(); }
+function renderLogin(){
+  return `<div class="topbar"><span>🎸 Anoint Chords</span></div>
+  <div class="authWrap"><button onclick="goHome()">← Back to songs</button>
+    <h3>Admin Login</h3>
+    <input id="loginEmail" type="email" placeholder="Email">
+    <input id="loginPass" type="password" placeholder="Password">
+    <div class="authErr" id="authError"></div>
+    <button class="loginBtn" onclick="doLogin()">Login</button>
+
+    <div class="hint">Viewer access is free. Only the designated admin can change songs.</div>
+  </div>`;
+}
+
+function renderHome(){
+  let html = `<div class="topbar"><span>🎸 Anoint Chords</span>${isAdmin() ? `<button class="logoutBtn" onclick="doLogout()">Logout</button>` : `<button class="logoutBtn" onclick="showAdminLogin()">Admin Login</button>`}</div>`;
+
+  html += `<div class="searchBar">
+    <input id="searchInput" type="text" placeholder="🔍 Maghanap ng kanta..." value="${escapeHtml(searchQuery)}" oninput="updateSearch(this.value)">
+  </div>`;
+
+  const q = searchQuery.trim().toLowerCase();
+  const filtered = q ? songs.filter(s => (s.title||'').toLowerCase().includes(q)) : songs;
+
+  if(songs.length === 0){
+    html += `<div class="emptyMsg">Wala pang saved na kanta.<br>Hintaying magdagdag ng kanta ang admin.</div>`;
+  } else if(filtered.length === 0){
+    html += `<div class="emptyMsg">Walang nahanap na kantang tugma sa "${escapeHtml(searchQuery)}".</div>`;
+  } else {
+    filtered.forEach(s => {
+      html += `<div class="songCard">
+        <div class="info"><div class="t">${escapeHtml(s.title)}</div><div class="k">Key: ${escapeHtml(s.key)}</div></div>
+        <div class="actions">
+          <button class="openBtn" onclick="viewSong('${s.id}')">Tingnan</button>
+          ${isAdmin() ? `<button class="openBtn" onclick="openSong('${s.id}')">I-edit</button>` : ''}
+          ${isAdmin() ? `<button class="dupBtn" onclick="duplicateSong('${s.id}')">Duplicate</button>` : ''}
+          ${isAdmin() ? `<button class="delBtn" onclick="deleteSong('${s.id}')">Delete</button>` : ''}
+        </div>
+      </div>`;
+    });
+  }
+  if(isAdmin()) html += `<button class="newSongBtn" onclick="createSong()">+ Bagong Kanta</button>`;
+  if(isAdmin()) html += `<button class="newSongBtn" style="border-color:#a9c8ea; background:#eaf2fb; color:#1a4a6b; margin-top:8px;" onclick="showImport()">📥 I-import mula sa Excel/JSON</button>`;
+  html += `<div class="hint" style="text-align:center; margin-top:10px;">Shared na songbook — publicly viewable; admin edits only.</div>`;
+  return html;
+}
+
+function renderEditor(song){
+  let html = `<div class="topbar">
+    <button class="backBtn" onclick="goHome()">←</button>
+    <span>Editor</span>
+    <button onclick="saveAndHome()">Save</button>
+  </div>`;
+
+  html += `<div class="fieldRow" style="justify-content:flex-end;">
+    <button class="smallBtn addBtn" onclick="viewSong(currentId)">👁 View lang (hindi na-eedit)</button>
+  </div>`;
+
+  html += `<div class="fieldRow">
+    <label>Title:</label>
+    <input class="titleInput" value="${escapeHtml(song.title)}" oninput="updateTitle(this.value)">
+  </div>`;
+
+  html += `<div class="fieldRow">
+    <label>Key:</label>
+    <button class="transBtn" onclick="doTranspose(-1)">-</button>
+    <div class="keyBadge">${escapeHtml(song.key)}</div>
+    <button class="transBtn" onclick="doTranspose(1)">+</button>
+    <span class="hint">(transpose lahat ng chords)</span>
+  </div>`;
+
+  song.sections.forEach((sec, si) => {
+    html += `<div class="section">
+      <div class="sectionHead">
+        <input class="sectionName" value="${escapeHtml(sec.name)}" oninput="updateSectionName(${si}, this.value)">
+        <button class="smallBtn rmBtn" onclick="deleteSection(${si})">Delete Section</button>
+      </div>`;
+    sec.rows.forEach((row, ri) => {
+      html += `<div class="chordRow">`;
+      row.cells.forEach((cell, ci) => {
+        const minorClass = isMinorChord(cell.chord) ? ' minor' : '';
+        html += `<div class="chordCell">
+          <input class="countInput" type="text" value="${escapeHtml(String(cell.count))}" oninput="updateCount(${si},${ri},${ci}, this.value)">
+          <input class="chordInput${minorClass}" type="text" value="${escapeHtml(cell.chord)}" oninput="updateChordLive(this, ${si},${ri},${ci}, this.value)">
+          <button class="cellDel" onclick="deleteCell(${si},${ri},${ci})">alisin</button>
+        </div>`;
+      });
+      html += `<button class="addChordBtn" onclick="addCell(${si},${ri})">+</button>`;
+      html += `</div>`;
+    });
+    html += `<div class="rowFoot"><button class="smallBtn addBtn" onclick="addRow(${si})">+ Row</button></div>`;
+    html += `</div>`;
+  });
+
+  html += `<div class="addSectionBar">
+    <input id="newSectionName" placeholder="Pangalan ng section (hal. Bridge)">
+    <button onclick="addSection()">+ Section</button>
+  </div>`;
+
+  html += `<div class="saveFooter"><button class="saveBtn" onclick="saveAndHome()">💾 I-save</button></div>`;
+  return html;
+}
+
+function renderViewer(song){
+  let html = `<div class="topbar">
+    <button class="backBtn" onclick="goHome()">←</button>
+    <span>${escapeHtml(song.title)}</span>
+    ${isAdmin() ? `<button onclick="openSong(currentId)">✎ I-edit</button>` : ''}
+  </div>`;
+
+  html += `<div class="viewKeyRow"><strong>Key:</strong><button onclick="changeViewerTranspose(-1)">−</button><div class="keyBadge">${escapeHtml(transposeChordText(song.key,viewerTranspose))}</div><button onclick="changeViewerTranspose(1)">+</button><button onclick="changeViewerTranspose(-viewerTranspose)">Reset</button></div>`;
+
+  song.sections.forEach(sec => {
+    html += `<div class="viewSection">
+      <div class="viewSectionName">${escapeHtml(sec.name)}</div>`;
+    sec.rows.forEach(row => {
+      html += `<div class="viewChordRow">`;
+      row.cells.forEach(cell => {
+        const minorClass = isMinorChord(cell.chord) ? ' minor' : '';
+        html += `<div class="viewCell">
+          <div class="viewCount">${escapeHtml(String(cell.count))}</div>
+          <div class="viewChord${minorClass}">${escapeHtml(transposeChordText(cell.chord,viewerTranspose))}</div>
+        </div>`;
+      });
+      html += `</div>`;
+    });
+    html += `</div>`;
+  });
+  return html;
+}
+
+function viewSong(id){ currentId = id; viewerTranspose=0; view = 'viewer'; render(); }
+function changeViewerTranspose(n){viewerTranspose+=n;render();}
+
+function updateSearch(v){
+  searchQuery = v;
+  render();
+  const el = document.getElementById('searchInput');
+  if(el){ el.focus(); const p = el.value.length; el.setSelectionRange(p,p); }
+}
+
+function escapeHtml(str){
+  return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ---------- actions (nagbabasa/sumusulat sa Firestore, shared sa lahat) ---------- */
+function goHome(){ view = 'home'; render(); }
+
+function createSong(){
+  if(!requireAdmin()) return;
+  db.collection('songs').add(newSongData()).then(docRef => {
+    currentId = docRef.id;
+    view = 'editor';
+    render();
+  }).catch(e => alert('Error: ' + e.message));
+}
+
+function openSong(id){
+  if(!requireAdmin()) return; currentId = id; view = 'editor'; render(); }
+
+function deleteSong(id){
+  if(!requireAdmin()) return;
+  if(confirm('Sigurado ka bang i-delete ang kantang ito? Mabubura ito sa lahat.')){
+    db.collection('songs').doc(id).delete().catch(e => alert('Error: ' + e.message));
+  }
+}
+
+function duplicateSong(id){
+  if(!requireAdmin()) return;
+  const song = getSongById(id);
+  if(!song) return;
+  const { id: _oldId, ...data } = song;
+  const copy = JSON.parse(JSON.stringify(data)); // deep clone
+  copy.title = copy.title + ' (Copy)';
+  db.collection('songs').add(copy).catch(e => alert('Error: ' + e.message));
+}
+
+function saveAndHome(){
+  const song = getSongById(currentId);
+  const { id, ...data } = song;
+  db.collection('songs').doc(id).set(data)
+    .then(() => goHome())
+    .catch(e => alert('Error sa pag-save: ' + e.message));
+}
+
+function updateTitle(v){ getSongById(currentId).title = v; }
+function updateSectionName(si, v){ getSongById(currentId).sections[si].name = v; }
+function updateCount(si,ri,ci,v){ getSongById(currentId).sections[si].rows[ri].cells[ci].count = v; }
+function updateChordLive(el,si,ri,ci,v){
+  getSongById(currentId).sections[si].rows[ri].cells[ci].chord = v;
+  el.className = 'chordInput' + (isMinorChord(v) ? ' minor' : '');
+}
+function addCell(si,ri){
+  getSongById(currentId).sections[si].rows[ri].cells.push({count:4, chord:'C'});
+  render();
+}
+function deleteCell(si,ri,ci){
+  getSongById(currentId).sections[si].rows[ri].cells.splice(ci,1);
+  render();
+}
+function addRow(si){
+  getSongById(currentId).sections[si].rows.push({ cells: [{count:4, chord:'C'}] });
+  render();
+}
+function deleteSection(si){
+  if(confirm('Alisin ang section na ito?')){
+    getSongById(currentId).sections.splice(si,1);
+    render();
+  }
+}
+function addSection(){
+  const input = document.getElementById('newSectionName');
+  const name = input.value.trim() || 'Section';
+  getSongById(currentId).sections.push({name, rows:[{ cells: [{count:4, chord:'G'}] }]});
+  render();
+}
+function doTranspose(steps){
+  transposeSong(getSongById(currentId), steps);
+  render();
+}
+
+
+/* ---------- bulk import ---------- */
+const SEED_SONGS_JSON = [];
+
+let importStatusHtml = '';
+
+function showImport(){
+  if(!requireAdmin()) return;
+  importStatusHtml = '';
+  view = 'import';
+  render();
+}
+
+function loadSeedIntoImport(){
+  const ta = document.getElementById('importTextarea');
+  if(ta) ta.value = SEED_SONGS_JSON;
+}
+
+function clearImportBox(){
+  const ta = document.getElementById('importTextarea');
+  if(ta) ta.value = '';
+}
+
+function renderImport(){
+  let html = `<div class="topbar">
+    <button class="backBtn" onclick="goHome()">←</button>
+    <span>Import Songs</span>
+
+  </div>`;
+
+  html += `<div class="importWrap">
+    <div class="hint">
+      I-paste ang JSON array ng converted SOURCE-only charts. See import-tools/README.md. This action writes to Firestore.
+    </div>
+    <textarea id="importTextarea" placeholder="[{&quot;title&quot;:&quot;...&quot;,&quot;key&quot;:&quot;...&quot;,&quot;sections&quot;:[...]}]"></textarea>
+    <div class="importBtnRow">
+      <button class="importClearBtn" onclick="clearImportBox()">Clear</button>
+      <button class="importGoBtn" onclick="doImport()">⬆️ I-import</button>
+    </div>
+    ${importStatusHtml}
+  </div>`;
+  return html;
+}
+
+async function doImport(){
+  if(!requireAdmin()) return;
+  const ta = document.getElementById('importTextarea');
+  const raw = ta ? ta.value.trim() : '';
+  if(!raw){
+    importStatusHtml = `<div class="importStatus err">Wala pang na-paste na JSON.</div>`;
+    render();
+    return;
+  }
+  let list;
+  try {
+    list = JSON.parse(raw);
+    if(!Array.isArray(list)) list = [list];
+  } catch(e) {
+    importStatusHtml = `<div class="importStatus err">Invalid JSON: ${escapeHtml(e.message)}</div>`;
+    render();
+    return;
+  }
+
+  let ok = 0, fail = 0, errors = [];
+  for(const song of list){
+    try {
+      if(!song.title || !song.key || !Array.isArray(song.sections)) throw new Error('kulang ang title/key/sections');
+      await db.collection('songs').add({
+        title: song.title,
+        key: song.key,
+        sections: song.sections
+      });
+      ok++;
+    } catch(e) {
+      fail++;
+      errors.push(`${song && song.title ? song.title : '(walang title)'}: ${e.message}`);
+    }
+  }
+
+  const cls = fail === 0 ? 'ok' : 'err';
+  let msg = `Tapos ang import. Matagumpay: ${ok}. Nabigo: ${fail}.`;
+  if(errors.length) msg += '\n' + errors.join('\n');
+  importStatusHtml = `<div class="importStatus ${cls}">${escapeHtml(msg)}</div>`;
+  render();
+}
+
+/* ---------- init ---------- */
+render();
+
+if(false && 'serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
