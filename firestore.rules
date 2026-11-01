@@ -3,27 +3,28 @@ service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() { return request.auth != null; }
     function superAdmin() { return signedIn() && request.auth.uid == '9mDglSfyziTd0UQUhXV79tqAphq1'; }
-    function admin() {
-      return superAdmin() || (signedIn() && request.auth.uid == 'Q8outnKG5cb9J4lSBvaERc47EmE3') ||
-        (signedIn() && exists(/databases/$(database)/documents/adminRequests/$(request.auth.uid)) &&
-          get(/databases/$(database)/documents/adminRequests/$(request.auth.uid)).data.status == 'approved');
+    function initialAdmin() { return signedIn() && request.auth.uid == 'Q8outnKG5cb9J4lSBvaERc47EmE3'; }
+    function approvedAdmin() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/adminRequests/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/adminRequests/$(request.auth.uid)).data.status == 'approved';
     }
+    function canEdit() { return superAdmin() || initialAdmin() || approvedAdmin(); }
     match /songs/{songId} {
       allow read: if true;
-      allow create, update, delete: if admin();
+      allow create, update, delete: if canEdit();
     }
     match /adminRequests/{uid} {
-      allow read: if superAdmin() || (signedIn() && request.auth.uid == uid);
-      allow create: if signedIn() && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['email','status','createdAt'])
-        && request.resource.data.status == 'pending'
-        && request.resource.data.email == request.auth.token.email;
-      allow update: if superAdmin()
-        && resource.data.email == request.resource.data.email
-        && resource.data.createdAt == request.resource.data.createdAt
-        && request.resource.data.keys().hasOnly(['email','status','createdAt','reviewedAt'])
-        && request.resource.data.status in ['approved','rejected','revoked'];
-      allow delete: if false;
+      allow get: if superAdmin() || (signedIn() && request.auth.uid == uid);
+      allow list: if superAdmin();
+      allow create: if signedIn() && request.auth.uid == uid &&
+        request.resource.data.keys().hasOnly(['email','status','createdAt']) &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.email == request.auth.token.email;
+      allow update: if superAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','reviewedAt']) &&
+        request.resource.data.status in ['approved','rejected','revoked'];
+      allow delete: if superAdmin();
     }
   }
 }
