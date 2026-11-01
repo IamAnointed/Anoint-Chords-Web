@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Chord Chart Maker</title>
-<link rel="manifest" href="manifest.json">
+<title>Anoint Chords</title>
+
 <meta name="theme-color" content="#8BC98B">
 <link rel="apple-touch-icon" href="icon-192.png">
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
@@ -109,6 +109,8 @@
   .viewChord.minor { background:#8BC98B; border-color:#5a9a5a; color:#123; }
 
   /* Import */
+  .lyricsInput { width:100%; min-height:80px; padding:10px; margin:8px 0; border:1px solid #ddd; border-radius:8px; font:14px/1.5 monospace; resize:vertical; }
+  .lyricsDisplay { white-space:pre-wrap; font:15px/1.55 monospace; background:#fff; padding:10px; border-radius:8px; margin:8px 0; overflow-wrap:anywhere; }
   .importWrap { padding:4px; }
   .importWrap textarea {
     width:100%; min-height:260px; padding:10px; font-family:monospace; font-size:12px;
@@ -165,7 +167,7 @@ function newSongData(){
     title: 'Bagong Kanta',
     key: 'G',
     sections: [
-      { name: 'Intro', rows: [ { cells: [ {count:4, chord:'G'} ] } ] }
+      { name: 'Intro', lyrics:'', rows: [ { cells: [ {count:4, chord:'G'} ] } ] }
     ]
   };
 }
@@ -391,6 +393,7 @@ function renderEditor(song){
         <input class="sectionName" value="${escapeHtml(sec.name)}" oninput="updateSectionName(${si}, this.value)">
         <button class="smallBtn rmBtn" onclick="deleteSection(${si})">Delete Section</button>
       </div>`;
+    html += `<label class="hint">Lyrics / Notes (SOURCE)</label><textarea class="lyricsInput" oninput="updateSectionLyrics(${si},this.value)" placeholder="Lyrics o notes para sa section na ito">${escapeHtml(sec.lyrics||'')}</textarea>`;
     sec.rows.forEach((row, ri) => {
       html += `<div class="chordRow">`;
       row.cells.forEach((cell, ci) => {
@@ -429,6 +432,7 @@ function renderViewer(song){
   song.sections.forEach(sec => {
     html += `<div class="viewSection">
       <div class="viewSectionName">${escapeHtml(sec.name)}</div>`;
+    if(sec.lyrics) html += `<div class="lyricsDisplay">${escapeHtml(sec.lyrics)}</div>`;
     sec.rows.forEach(row => {
       html += `<div class="viewChordRow">`;
       row.cells.forEach(cell => {
@@ -500,6 +504,7 @@ function saveAndHome(){
 }
 
 function updateTitle(v){ getSongById(currentId).title = v; }
+function updateSectionLyrics(si,v){ getSongById(currentId).sections[si].lyrics=v; }
 function updateSectionName(si, v){ getSongById(currentId).sections[si].name = v; }
 function updateCount(si,ri,ci,v){ getSongById(currentId).sections[si].rows[ri].cells[ci].count = v; }
 function updateChordLive(el,si,ri,ci,v){
@@ -527,7 +532,7 @@ function deleteSection(si){
 function addSection(){
   const input = document.getElementById('newSectionName');
   const name = input.value.trim() || 'Section';
-  getSongById(currentId).sections.push({name, rows:[{ cells: [{count:4, chord:'G'}] }]});
+  getSongById(currentId).sections.push({name, lyrics:'', rows:[{ cells: [{count:4, chord:'G'}] }]});
   render();
 }
 function doTranspose(steps){
@@ -567,9 +572,9 @@ function renderImport(){
 
   html += `<div class="importWrap">
     <div class="hint">
-      I-paste ang JSON array ng converted SOURCE-only charts. See import-tools/README.md. This action writes to Firestore.
+      I-upload ang converted JSON mula sa import-tools converter, o i-paste ang JSON array. Iche-check ang duplicates bago isulat sa Firestore.
     </div>
-    <textarea id="importTextarea" placeholder="[{&quot;title&quot;:&quot;...&quot;,&quot;key&quot;:&quot;...&quot;,&quot;sections&quot;:[...]}]"></textarea>
+    <input type="file" accept=".json,application/json" onchange="loadImportFile(this.files[0])" style="margin:12px 0;width:100%"><textarea id="importTextarea" placeholder="[{&quot;title&quot;:&quot;...&quot;,&quot;key&quot;:&quot;...&quot;,&quot;sections&quot;:[...]}]"></textarea>
     <div class="importBtnRow">
       <button class="importClearBtn" onclick="clearImportBox()">Clear</button>
       <button class="importGoBtn" onclick="doImport()">⬆️ I-import</button>
@@ -579,6 +584,12 @@ function renderImport(){
   return html;
 }
 
+async function loadImportFile(file){
+  if(!file) return;
+  try { document.getElementById('importTextarea').value = await file.text(); }
+  catch(e){ alert('Cannot read file: '+e.message); }
+}
+function normalizeTitle(s){return String(s||'').toLocaleLowerCase().normalize('NFKC').replace(/[^a-z0-9\u00c0-\u024f\u1e00-\u1eff]+/g,' ').trim();}
 async function doImport(){
   if(!requireAdmin()) return;
   const ta = document.getElementById('importTextarea');
@@ -598,16 +609,22 @@ async function doImport(){
     return;
   }
 
-  let ok = 0, fail = 0, errors = [];
+  if(!confirm(`Import ${list.length} songs? Existing song titles will be skipped.`)) return;
+  let ok = 0, fail = 0, skipped=0, errors = [];
+  const known = new Set(songs.map(s=>normalizeTitle(s.title)));
   for(const song of list){
     try {
       if(!song.title || !song.key || !Array.isArray(song.sections)) throw new Error('kulang ang title/key/sections');
+      const titleKey=normalizeTitle(song.title);
+      if(known.has(titleKey)){ skipped++; continue; }
+      if(!song.sections.every(sec=>sec.name && Array.isArray(sec.rows) && sec.rows.every(r=>Array.isArray(r.cells)))) throw new Error('invalid section structure');
       await db.collection('songs').add({
         title: song.title,
         key: song.key,
-        sections: song.sections
+        sections: song.sections.map(sec=>({name:sec.name,lyrics:sec.lyrics||'',rows:sec.rows})),
+        sourceFile: song.sourceFile || '', importedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
-      ok++;
+      known.add(titleKey); ok++;
     } catch(e) {
       fail++;
       errors.push(`${song && song.title ? song.title : '(walang title)'}: ${e.message}`);
@@ -615,7 +632,7 @@ async function doImport(){
   }
 
   const cls = fail === 0 ? 'ok' : 'err';
-  let msg = `Tapos ang import. Matagumpay: ${ok}. Nabigo: ${fail}.`;
+  let msg = `Tapos ang import. Matagumpay: ${ok}. Na-skip (duplicate): ${skipped}. Nabigo: ${fail}.`;
   if(errors.length) msg += '\n' + errors.join('\n');
   importStatusHtml = `<div class="importStatus ${cls}">${escapeHtml(msg)}</div>`;
   render();
